@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>p5.js 3D + REST API</title>
+
+  <!-- p5.js -->
+  <script src="https://cdn.jsdelivr.net/npm/p5@1.9.0/lib/p5.min.js"></script>
+</head>
+
+<body style="margin:0; overflow:hidden;">
+<script>
+  let apiData = {
+    x: 0,
+    y: 0,
+    z: 0,
+    size: 100
+  };
+
+  const API_URL = 'http://localhost:8080/api/object';
+
+  function setup() {
+    createCanvas(windowWidth, windowHeight, WEBGL);
+    angleMode(DEGREES);
+    setInterval(fetchData, 1000); // обновление данных раз в секунду
+  }
+
+  function windowResized() {
+    resizeCanvas(windowWidth, windowHeight);
+  }
+
+  function draw() {
+    background(30);
+
+    // управление камерой мышью
+    orbitControl();
+
+    // освещение
+    ambientLight(80);
+    directionalLight(255, 255, 255, 0.5, 1, -0.5);
+
+    // координатные оси
+    drawAxes(300);
+
+    // объект из данных API
+    for(var i=0;i<10000; i++){
+      push();
+      translate(apiData.x+110*i, apiData.y, apiData.z);
+      normalMaterial();
+      box(apiData.size);
+      pop();
+    }
+  }
+
+  function drawAxes(len) {
+    strokeWeight(2);
+
+    // X — красная
+    stroke(255, 0, 0);
+    line(0, 0, 0, len, 0, 0);
+
+    // Y — зелёная
+    stroke(0, 255, 0);
+    line(0, 0, 0, 0, len, 0);
+
+    // Z — синяя
+    stroke(0, 0, 255);
+    line(0, 0, 0, 0, 0, len);
+
+    noStroke();
+  }
+
+  async function fetchData() {
+    try {
+      //const response = await fetch(API_URL);
+      //if (!response.ok) throw new Error('API error');
+
+      const data = { x: 50, y: -20, z: 100, size: 100 }
+
+      // ожидаемый формат:
+      // { x: 50, y: -20, z: 100, size: 120 }
+      apiData = data;
+    } catch (e) {
+      console.error('Ошибка получения данных:', e);
+    }
+  }
+</script>
+</body>
+</html>
