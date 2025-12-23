@@ -1,145 +1,143 @@
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
 
-# Press the green button in the gutter to run the script.
+
+def compute_trace(df: pd.DataFrame, deg2rad=True) -> pd.DataFrame:
+    """
+    compute trace by method of minimal curve.
+        'INC' - zenit
+        'AZI' - azimut
+        'MD' - length of path
+    :param df: contain columns ['INC', 'AZI', 'MD'].
+    :param deg2rad: if True values of 'INC', 'AZI' will convert to radians
+    :return: same df with coordinates of trace ['X', 'Y', 'Z'] and addition data ['Radius', 'gamma', 'tangentX', 'tangentY', 'tangentZ']
+    """
+    if deg2rad:
+        df['INC'] = np.deg2rad(df['INC'])
+        df['AZI'] = np.deg2rad(df['AZI'])
+    # касательная
+    df['tangentX'] = np.sin(df['INC']) * np.cos(df['AZI'])
+    df['tangentY'] = np.sin(df['INC']) * np.sin(df['AZI'])
+    df['tangentZ'] = np.cos(df['INC'])
+    # длинна кривой
+    df['dMD'] = df['MD'] - df['MD'].shift(1).fillna(0)
+    # угол дуги
+    df['gamma'] = np.arccos(np.sin(df['INC'].shift(1)) * np.sin(df['INC']) * np.cos(df['AZI'] - df['AZI'].shift(1))
+                            + np.cos(df['INC'].shift(1)) * np.cos(df['INC']))
+    # радиус дуги
+    df['Radius'] = df['dMD'] / df['gamma']
+    df['RF'] = np.tan(0.5 * df['gamma']) * 2.0 / df['gamma']
+    df['C'] = 0.5 * df['dMD'] * df['RF']
+    # смещение
+    df['dN'] = df['C'] * (df['tangentX'].shift(1) + df['tangentX'])
+    df['dE'] = df['C'] * (df['tangentY'].shift(1) + df['tangentY'])
+    df['dTVD'] = df['C'] * (df['tangentZ'].shift(1) + df['tangentZ'])
+    # искомые координаты
+    df['X'] = df['dN'].fillna(0).cumsum()
+    df['Y'] = df['dE'].fillna(0).cumsum()
+    df['Z'] = df['dTVD'].fillna(0).cumsum()
+    #
+    df.drop(['dN', 'dE', 'dTVD', 'RF', 'C', 'dMD'], axis=1, inplace=True)
+    return df
+
+
+def compute_circus(df: pd.DataFrame, add_radiuses=True) -> pd.DataFrame:
+    """
+    compute circus parameters by ['X', 'Y', 'Z', 'Radius', 'tangentX', 'tangentY', 'tangentZ']
+    :param df:
+    :param add_radiuses:
+    :return: same df with ('v2c_X', 'v2c_Y', 'v2c_Z') - vector to center of circle from previous point, ('C_X', 'C_Y', 'C_Z') - center of circle
+    """
+    # Нормаль к плоскости диги
+    tangent = df[['tangentX', 'tangentY', 'tangentZ']]
+    normal = np.cross(tangent.shift(1), tangent)
+    # Центр дуги
+    v2c = np.cross(normal, tangent.shift(1))
+    df[['v2c_X', 'v2c_Y', 'v2c_Z']] = v2c / np.linalg.norm(v2c, axis=1)[:, None]
+    df['C_X'] = df['X'].shift(1) + df['Radius'] * df['v2c_X']
+    df['C_Y'] = df['Y'].shift(1) + df['Radius'] * df['v2c_Y']
+    df['C_Z'] = df['Z'].shift(1) + df['Radius'] * df['v2c_Z']
+    if add_radiuses:
+        dx = df['C_X'] - df['X']
+        dy = df['C_Y'] - df['Y']
+        dz = df['C_Z'] - df['Z']
+
+        df['R1'] = np.sqrt(dx ** 2 + dy ** 2 + dz ** 2)
+
+        dx = df['C_X'] - df['X'].shift(1)
+        dy = df['C_Y'] - df['Y'].shift(1)
+        dz = df['C_Z'] - df['Z'].shift(1)
+
+        df['R2'] = np.sqrt(dx ** 2 + dy ** 2 + dz ** 2)
+    return df
+
+
+def compute_subpoints(df: pd.DataFrame, dl=None, da=None, default_value=15):
+    """
+    :param default_value:
+    :param dl:
+    :param da:
+    :param df:
+    :return:
+    """
+    # compute parts count
+    if dl is not None:
+        df['parts_count'] = np.round((df['MD'] - df['MD'].shift(1)) / dl)
+    elif da is not None:
+        df['parts_count'] = np.round(df['gamma'] / da)
+    else:
+        df['parts_count'] = default_value
+
+    result = pd.DataFrame()
+    for i in range(len(df) - 1):
+        a = df.iloc[i].copy()
+        b = df.iloc[i + 1]
+        if b['parts_count'] <= 1:
+            result = pd.concat([pd.DataFrame([a]), result], ignore_index=True)
+        else:
+            #
+            temp_df = pd.DataFrame()
+            temp_df['MD'] = np.linspace(a['MD'], b['MD'], int(b['parts_count']))[1:-1]
+            temp_df['INC'] = np.linspace(a['INC'], b['INC'], int(b['parts_count']))[1:-1]
+            temp_df['AZI'] = np.linspace(a['AZI'], b['AZI'], int(b['parts_count']))[1:-1]
+            temp_df['tangentX'] = np.linspace(a['tangentX'], b['tangentX'], int(b['parts_count']))[1:-1]
+            temp_df['tangentY'] = np.linspace(a['tangentY'], b['tangentY'], int(b['parts_count']))[1:-1]
+            temp_df['tangentZ'] = np.linspace(a['tangentZ'], b['tangentZ'], int(b['parts_count']))[1:-1]
+            e2 = np.array([a['tangentX'], a['tangentY'], a['tangentZ']])
+            e1 = np.array([-b['v2c_X'], -b['v2c_Y'], -b['v2c_Z']])
+            center = np.array([b['C_X'], b['C_Y'], b['C_Z']])
+            angels = np.linspace(0, b['gamma'], int(b['parts_count'])+1)[1:-1]
+            subpoints = np.array([
+                center + b['Radius'] * (np.cos(angel) * e1 + np.sin(angel) * e2)
+                for angel in angels
+            ])
+            subpoints_df = pd.DataFrame(subpoints, columns=['X', 'Y', 'Z'])
+            temp_df = temp_df.join(subpoints_df)
+            temp_df['C_X'] = b['C_X']
+            temp_df['C_Y'] = b['C_Y']
+            temp_df['C_Z'] = b['C_Z']
+            if i == 0:
+                a['C_X'] = b['C_X']
+                a['C_Y'] = b['C_Y']
+                a['C_Z'] = b['C_Z']
+            #
+            result = pd.concat([pd.DataFrame([a]), result, temp_df], ignore_index=True)
+    last_row = df.iloc[len(df) - 1]
+    result = pd.concat([result, pd.DataFrame([last_row])], ignore_index=True)
+    return result[['MD', 'INC', 'AZI', 'tangentX', 'tangentY', 'tangentZ', 'X', 'Y', 'Z', 'C_X', 'C_Y', 'C_Z']]
+
+
 if __name__ == '__main__':
-    # Координаты начальной точки
-    N1 = 0
-    E1 = 0
-    TVD1 = 0
-    print("N1 =", N1, ", E1 =", E1, ", TVD1 =", TVD1)
-
-    # Первый замер
-    MD1 = 0
-    A1 = 0.0
-    I1 = 0.0
-    print("MD1 =", MD1, ", A1 =", A1, ", I1 =", I1)
-
-    # Второй замер
-    MD2 = 1000
-    I2 = 50.0 * np.pi / 180.0
-    A2 = 45.0 * np.pi / 180.0
-    print("MD2 =", MD2, ", A2 =", A2, ", I2 =", I2)
-
-    MD_delta = MD2 - MD1
-    print("MD_delta = ", MD_delta)
-
-    # Dogleg cos (cosθ)
-    dogleg_cos = np.sin(I1) * np.sin(I2) * np.cos(A2 - A1) + np.cos(I1) * np.cos(I2)
-    print("dogleg_cos =", dogleg_cos)
-    # Dogleg Angle (θ)
-    dogleg = np.arccos(dogleg_cos)
-    print("dogleg =", dogleg)
-
-    # Ratio Factor (RF)
-    RF = np.tan(0.5 * dogleg) * 2.0 / dogleg
-    print("RF =", RF)
-
-    # Coordinate Changes
-    delta_N = 0.5 * MD_delta * (np.sin(I1) * np.cos(A1) + np.sin(I2) * np.cos(A2)) * RF
-    print("delta_N =", delta_N)
-    delta_E = 0.5 * MD_delta * (np.sin(I1) * np.sin(A1) + np.sin(I2) * np.sin(A2)) * RF
-    print("delta_E =", delta_E)
-    delta_TVD = 0.5 * MD_delta * (np.cos(I1) + np.cos(I2)) * RF
-    print("delta_TVD =", delta_TVD)
-
-    # Accumulate Coordinates
-    N2 = N1 + delta_N
-    E2 = E1 + delta_E
-    TVD2 = TVD1 + delta_TVD
-    print("N2 =", N2, ", E2 =", E2, ", TVD2 =", TVD2)
-
-    # Концы дуги
-    P1 = np.array([N1, E1, TVD1])
-    P2 = np.array([N2, E2, TVD2])
-    print("P1 =", N1, ", P2 =", P2)
-
-    # Calculate Dogleg Severity (DLS)
-    DLS = (((dogleg * 180.0) / np.pi) / MD_delta) * 30
-    print("DLS =", DLS, "degree / 30 ft")
-
-    # Radius value
-    R_dogleg = MD_delta / dogleg
-    print("R_dogleg =", R_dogleg)
-    R_dls = 1718.9 / DLS
-    print("R_dls =", R_dls)
-    radius = R_dogleg
-
-    # Единичный вектор касательной в начальной точке
-    t1 = np.array([np.sin(I1) * np.cos(A1), np.sin(I1) * np.sin(A1), np.cos(I1)])
-    # Единичный вектор касательной в конечной точке
-    t2 = np.array([np.sin(I2) * np.cos(A2), np.sin(I2) * np.sin(A2), np.cos(I2)])
-    print("t1 =", t1, ", t2 =", t2)
-
-    # Нормальный вектор к плоскости дуги
-    t1_x_t2 = np.cross(t1, t2)
-    normal = t1_x_t2 / np.linalg.norm(t1_x_t2)
-    print("normal =", normal)
-
-    # Вектор нормали кривизны (направление к центру)
-    k = np.cross(normal, t1)
-
-    # Координаты центра дуги
-    N_center = N1 + R_dogleg * k[0]
-    E_center = E1 + R_dogleg * k[1]
-    TVD_center = TVD1 + R_dogleg * k[2]
-    # print( "N_center =", N_center, "E_center =", E_center, "TVD_center =", TVD_center )
-    P_center = np.array([N_center, E_center, TVD_center])
-    print("P_center =", P_center)
-
-    # Вектора от центра до концов дуги
-    CP1 = P1 - P_center
-    CP2 = P2 - P_center
-    print("CP1 =", CP1, ", CP2 =", CP2)
-
-    # Проверка (рекомендуется)
-    mod_CP1 = np.linalg.norm(CP1)
-    mod_CP2 = np.linalg.norm(CP2)
-    print("mod_CP1 =", mod_CP1, ", mod_CP2 =", mod_CP2)
-
-    # Ортонормированный базис в плоскости дуги
-    e1 = CP1 / np.linalg.norm(CP1)
-    normal = np.cross(CP1, CP2)
-    e2 = np.cross(normal, e1)
-    e2 = e2 / np.linalg.norm(e2)
-
-    # Число отображаемых точек на дуге
-    n_arc_points = 10
-
-    # Параметризация угла
-    t_values = np.linspace(0, dogleg, n_arc_points)
-    print("t_values =", t_values)
-
-    # Точки дуги
-    arc = np.array([
-        P_center + radius * (np.cos(tt) * e1 + np.sin(tt) * e2)
-        for tt in t_values
-    ])
-    print("arc =", arc)
-
-    # ===== ВИЗУАЛИЗАЦИЯ =====
-    fig = plt.figure()
-    ax = fig.add_subplot(111, projection='3d')
-
-    # Дуга
-    ax.plot(arc[:, 0], arc[:, 1], arc[:, 2], color='black', linewidth=2, label='Дуга')
-
-    ax.scatter(*P1, color='red', s=50, label='P1')
-    ax.scatter(*P2, color='green', s=50, label='P2')
-    ax.scatter(*P_center, color='blue', s=50, label='P_center')
-
-    axis_length = 1250
-    ax.quiver(0, 0, 0, axis_length, 0, 0, color='red', arrow_length_ratio=0.1)
-    ax.quiver(0, 0, 0, 0, axis_length, 0, color='green', arrow_length_ratio=0.1)
-    ax.quiver(0, 0, 0, 0, 0, axis_length, color='blue', arrow_length_ratio=0.1)
-
-    ax.set_xlabel('X')
-    ax.set_ylabel('Y')
-    ax.set_zlabel('Z')
-
-    ax.set_xlim(-5, 1000)
-    ax.set_ylim(-5, 1000)
-    ax.set_zlim(0, 1000)
-
-    ax.legend()
-    plt.show()
+    df = pd.read_csv('./data/Datos_Wellbore-47.csv')
+    df = df[df.index % 10 == 0]
+    df1 = pd.DataFrame({
+        'MD': [0, 1000],
+        'INC': [0, 50.0 * np.pi / 180.0],
+        'AZI': [0, 45.0 * np.pi / 180.0]
+    })
+    df = compute_trace(df, deg2rad=False)
+    #
+    df = compute_circus(df, add_radiuses=False)
+    df = compute_subpoints(df, da=0.001)
+    print(df.to_string(max_rows=10))
