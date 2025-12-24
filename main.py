@@ -1,6 +1,6 @@
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from matplotlib import pyplot as plt
 
 
 def compute_trace(df: pd.DataFrame, deg2rad=True) -> pd.DataFrame:
@@ -107,7 +107,7 @@ def compute_subpoints(df: pd.DataFrame, dl=None, da=None, default_value=15):
             e2 = np.array([a['tangentX'], a['tangentY'], a['tangentZ']])
             e1 = np.array([-b['v2c_X'], -b['v2c_Y'], -b['v2c_Z']])
             center = np.array([b['C_X'], b['C_Y'], b['C_Z']])
-            angels = np.linspace(0, b['gamma'], int(b['parts_count'])+1)[1:-1]
+            angels = np.linspace(0, b['gamma'], int(b['parts_count']) + 1)[1:-1]
             subpoints = np.array([
                 center + b['Radius'] * (np.cos(angel) * e1 + np.sin(angel) * e2)
                 for angel in angels
@@ -117,27 +117,57 @@ def compute_subpoints(df: pd.DataFrame, dl=None, da=None, default_value=15):
             temp_df['C_X'] = b['C_X']
             temp_df['C_Y'] = b['C_Y']
             temp_df['C_Z'] = b['C_Z']
+            temp_df['gamma'] = b['gamma']
             if i == 0:
                 a['C_X'] = b['C_X']
                 a['C_Y'] = b['C_Y']
                 a['C_Z'] = b['C_Z']
             #
-            result = pd.concat([pd.DataFrame([a]), result, temp_df], ignore_index=True)
+            result = pd.concat([result, pd.DataFrame([a]), temp_df], ignore_index=True)
     last_row = df.iloc[len(df) - 1]
     result = pd.concat([result, pd.DataFrame([last_row])], ignore_index=True)
-    return result[['MD', 'INC', 'AZI', 'tangentX', 'tangentY', 'tangentZ', 'X', 'Y', 'Z', 'C_X', 'C_Y', 'C_Z']]
+    return result[['MD', 'INC', 'AZI', 'tangentX', 'tangentY', 'tangentZ', 'gamma', 'X', 'Y', 'Z', 'C_X', 'C_Y', 'C_Z']]
+
+
+def visualise(df: pd.DataFrame):
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection='3d')
+
+    # Дуга
+    ax.plot(df['X'], df['Y'], df['Z'], color='black', linewidth=2, label='Дуга')
+
+    ax.scatter(df['C_X'], df['C_Y'], df['C_Z'], color='blue', s=50, label='P_center')
+
+    axis_length = 1250
+    ax.quiver(0, 0, 0, axis_length, 0, 0, color='red', arrow_length_ratio=0.1)
+    ax.quiver(0, 0, 0, 0, axis_length, 0, color='green', arrow_length_ratio=0.1)
+    ax.quiver(0, 0, 0, 0, 0, axis_length, color='blue', arrow_length_ratio=0.1)
+
+    ax.set_xlabel('X')
+    ax.set_ylabel('Y')
+    ax.set_zlabel('Z')
+
+    ax.set_xlim(-400, 400)
+    ax.set_ylim(-400, 400)
+    ax.set_zlim(-2000, 100)
+
+    ax.legend()
+    plt.show()
 
 
 if __name__ == '__main__':
     df = pd.read_csv('./data/Datos_Wellbore-47.csv')
     df = df[df.index % 10 == 0]
-    df1 = pd.DataFrame({
-        'MD': [0, 1000],
-        'INC': [0, 50.0 * np.pi / 180.0],
-        'AZI': [0, 45.0 * np.pi / 180.0]
-    })
+    # df = pd.DataFrame({
+    #    'MD': [0, 1000, 2000],
+    #    'INC': [0, 50.0 * np.pi / 180.0, 100.0 * np.pi / 180.0],
+    #    'AZI': [0, 45.0 * np.pi / 180.0, 90.0 * np.pi / 180.0]
+    # })
     df = compute_trace(df, deg2rad=False)
     #
     df = compute_circus(df, add_radiuses=False)
-    df = compute_subpoints(df, da=0.001)
-    print(df.to_string(max_rows=10))
+    df = compute_subpoints(df, dl=10)
+    visualise(df)
+    print(df.to_string(max_rows=1000))
+    df.to_csv('output_file.csv')
+
