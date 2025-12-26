@@ -3,19 +3,18 @@ import pandas as pd
 from matplotlib import pyplot as plt
 
 
-def compute_trace(df: pd.DataFrame, deg2rad: bool = True, min_angel: float = 0.5, *args, **kwargs) -> pd.DataFrame:
+def compute_trace(df: pd.DataFrame, deg2rad: bool = True, min_angel: float = 0.1, *args, **kwargs) -> pd.DataFrame:
     """
     compute trace by method of minimal curve.
         'INC' - zenit
         'AZI' - azimut
         'MD' - length of path
-    :param min_angel: min angel in same measure as computed from df
-    :param df: contain columns ['INC', 'AZI', 'MD'].
-    :param deg2rad: if True values of 'INC', 'AZI' will convert to radians
+    :param min_angel: min angel in same measure as in df
+    :param df: should contains columns ['INC', 'AZI', 'MD'].
+    :param deg2rad: if 'True' values of 'INC', 'AZI' and 'min_angel' will convert to radians
     :return: same df with coordinates of trace ['X', 'Y', 'Z'] and addition computed
     ['Radius', 'gamma', 'tangentX', 'tangentY', 'tangentZ']
     """
-
     if deg2rad:
         df['INC'] = np.deg2rad(df['INC'])
         df['AZI'] = np.deg2rad(df['AZI'])
@@ -30,7 +29,11 @@ def compute_trace(df: pd.DataFrame, deg2rad: bool = True, min_angel: float = 0.5
     df['gamma'] = np.arccos(np.sin(df['INC'].shift(1)) * np.sin(df['INC']) * np.cos(df['AZI'] - df['AZI'].shift(1))
                             + np.cos(df['INC'].shift(1)) * np.cos(df['INC']))
     # радиус дуги
-    df['Radius'] = df['dMD'] / df['gamma']
+    df['Radius'] = np.where(
+        df['gamma'] <= min_angel,
+        np.inf,
+        df['dMD'] / df['gamma']
+    )
     df['RF'] = np.where(
         df['gamma'] <= min_angel,
         1.0,
@@ -53,7 +56,7 @@ def compute_trace(df: pd.DataFrame, deg2rad: bool = True, min_angel: float = 0.5
 def compute_circus(df: pd.DataFrame) -> pd.DataFrame:
     """
     compute circus parameters by ['X', 'Y', 'Z', 'Radius', 'tangentX', 'tangentY', 'tangentZ']
-    :param df:
+    :param df: should contains columns ['X', 'Y', 'Z', 'Radius', 'tangentX', 'tangentY', 'tangentZ'].
     :return: same df with:
      ('v2c_X', 'v2c_Y', 'v2c_Z') - vector to center of circle from previous point
      ('C_X', 'C_Y', 'C_Z') - center of circle
@@ -63,27 +66,30 @@ def compute_circus(df: pd.DataFrame) -> pd.DataFrame:
     normal = np.cross(tangent.shift(1), tangent)
     # Центр дуги
     v2c = np.cross(normal, tangent.shift(1))
-    df[['v2c_X', 'v2c_Y', 'v2c_Z']] = v2c / np.linalg.norm(v2c, axis=1)[:, None]
+    norms = np.linalg.norm(v2c, axis=1)
+    df[['v2c_X', 'v2c_Y', 'v2c_Z']] = np.divide(
+        v2c,
+        norms[:, None],
+        out=np.full_like(v2c, np.nan),
+        where=norms[:, None] != 0
+    )
     df['C_X'] = df['X'].shift(1) + df['Radius'] * df['v2c_X']
     df['C_Y'] = df['Y'].shift(1) + df['Radius'] * df['v2c_Y']
     df['C_Z'] = df['Z'].shift(1) + df['Radius'] * df['v2c_Z']
     return df
 
 
-def compute_subpoints(df: pd.DataFrame, dl: float = 10, da: float = None, default_value: int = 10, *args,
+def compute_subpoints(df: pd.DataFrame, dl: float = 10, default_value: int = 10, *args,
                       **kwargs) -> pd.DataFrame:
     """
-    :param default_value:
-    :param dl:
-    :param da:
-    :param df:
-    :return:
+    :param default_value: steps count for each interval.
+    :param dl: an interpolation step.
+    :param df: should contains the computed trace and parameters of curves circles.
+    :return: new dataframe with computed subpoints.
     """
     # compute parts count
     if dl is not None:
         df['parts_count'] = np.round((df['MD'] - df['MD'].shift(1)) / dl) + 1
-    elif da is not None:
-        df['parts_count'] = np.round(df['gamma'] / da) + 1
     else:
         df['parts_count'] = default_value
 
@@ -92,7 +98,7 @@ def compute_subpoints(df: pd.DataFrame, dl: float = 10, da: float = None, defaul
         a = df.iloc[i].copy()
         b = df.iloc[i + 1]
         if b['parts_count'] <= 1:
-            result = pd.concat([pd.DataFrame([a]), result], ignore_index=True)
+            result = pd.concat([result, pd.DataFrame([a])], ignore_index=True)
         else:
             #
             temp_df = pd.DataFrame()
@@ -102,37 +108,47 @@ def compute_subpoints(df: pd.DataFrame, dl: float = 10, da: float = None, defaul
             temp_df['tangentX'] = np.linspace(a['tangentX'], b['tangentX'], int(b['parts_count']))[1:-1]
             temp_df['tangentY'] = np.linspace(a['tangentY'], b['tangentY'], int(b['parts_count']))[1:-1]
             temp_df['tangentZ'] = np.linspace(a['tangentZ'], b['tangentZ'], int(b['parts_count']))[1:-1]
-            e2 = np.array([a['tangentX'], a['tangentY'], a['tangentZ']])
-            e1 = np.array([-b['v2c_X'], -b['v2c_Y'], -b['v2c_Z']])
-            center = np.array([b['C_X'], b['C_Y'], b['C_Z']])
-            angels = np.linspace(0, b['gamma'], int(b['parts_count']) + 1)[1:-1]
-            subpoints = np.array([
-                center + b['Radius'] * (np.cos(angel) * e1 + np.sin(angel) * e2)
-                for angel in angels
-            ])
-            subpoints_df = pd.DataFrame(subpoints, columns=['X', 'Y', 'Z'])
-            temp_df = temp_df.join(subpoints_df)
-            temp_df['C_X'] = b['C_X']
-            temp_df['C_Y'] = b['C_Y']
-            temp_df['C_Z'] = b['C_Z']
-            temp_df['gamma'] = b['gamma']
-            temp_df['Radius'] = b['Radius']
+            if np.isinf(b['Radius']):
+                temp_df['X'] = np.linspace(a['X'], b['X'], int(b['parts_count']))[1:-1]
+                temp_df['Y'] = np.linspace(a['Y'], b['Y'], int(b['parts_count']))[1:-1]
+                temp_df['Z'] = np.linspace(a['Z'], b['Z'], int(b['parts_count']))[1:-1]
+                temp_df['C_X'] = np.nan
+                temp_df['C_Y'] = np.nan
+                temp_df['C_Z'] = np.nan
+                temp_df['gamma'] = 0.0
+                temp_df['Radius'] = np.inf
+            else:
+                e2 = np.array([a['tangentX'], a['tangentY'], a['tangentZ']])
+                e1 = np.array([-b['v2c_X'], -b['v2c_Y'], -b['v2c_Z']])
+                center = np.array([b['C_X'], b['C_Y'], b['C_Z']])
+                angels = np.linspace(0, b['gamma'], int(b['parts_count']) + 1)[1:-1]
+                subpoints = np.array([
+                    center + b['Radius'] * (np.cos(angel) * e1 + np.sin(angel) * e2)
+                    for angel in angels
+                ])
+                subpoints_df = pd.DataFrame(subpoints, columns=['X', 'Y', 'Z'])
+                temp_df = temp_df.join(subpoints_df)
+                temp_df['C_X'] = b['C_X']
+                temp_df['C_Y'] = b['C_Y']
+                temp_df['C_Z'] = b['C_Z']
+                temp_df['gamma'] = b['gamma']
+                temp_df['Radius'] = b['Radius']
             if i == 0:
                 a['C_X'] = b['C_X']
                 a['C_Y'] = b['C_Y']
                 a['C_Z'] = b['C_Z']
                 a['gamma'] = b['gamma']
+                a['Radius'] = b['Radius']
             #
             result = pd.concat([result, pd.DataFrame([a]), temp_df], ignore_index=True)
     last_row = df.iloc[len(df) - 1]
     result = pd.concat([result, pd.DataFrame([last_row])], ignore_index=True)
-    return result[
-        ['MD', 'INC', 'AZI', 'tangentX', 'tangentY', 'tangentZ', 'gamma', 'Radius', 'X', 'Y', 'Z', 'C_X', 'C_Y', 'C_Z']]
+    return result[['MD', 'INC', 'AZI', 'tangentX', 'tangentY', 'tangentZ', 'X', 'Y', 'Z', 'C_X', 'C_Y', 'C_Z']]
 
 
 def visualise(df: pd.DataFrame, show_tangents=False, show_focuses=False, *args, **kwargs):
     """
-    only for local test
+    A simple visualise of the trace.
     :param df:
     :param show_tangents:
     :param show_focuses:
