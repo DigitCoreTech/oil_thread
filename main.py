@@ -9,21 +9,22 @@ from service.minimal_curve import compute_trace, compute_circus, compute_subpoin
 def get_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Compute trace of a well by list of 'INC' - zenit, 'AZI' - azimut, 'MD' - length of path.")
-    parser.add_argument("--input", default="source.csv", help="path to csv file with source data.")
+    parser.add_argument("--input", default="source.csv",
+                        help="path to csv file with source data. (default=%(default)s)")
     parser.add_argument("--output", default="output.csv", required=False,
-                        help="path to output file with computed trace.")
+                        help="path to output file with computed trace. (default=%(default)s)")
     parser.add_argument("--deg2rad", default=True, required=False,
-                        help="True if all angles in source in degrees. False otherwise. It impact to 'min_angel'.")
+                        help="True if all angles in source in degrees. False otherwise. It impact to 'min_angel'. (default=%(default)s)")
     parser.add_argument("--min_angel", default=0.01, required=False,
-                        help="minimum angel-teta to do compute. If the teta less then it curve replaced linear segment.")
+                        help="minimum angel-teta to do compute. If the teta less then it curve replaced linear segment. (default=%(default)s)")
     parser.add_argument("--dL", default=10, required=False,
-                        help="Approximate distance between subpoints.")
+                        help="Approximate distance between subpoints. (default=%(default)s)")
     parser.add_argument("--visualise", default=False, required=False,
-                        help="If True the result will be showed by matplot.")
+                        help="If True the result will be showed by matplot. (default=%(default)s)")
     parser.add_argument("--show_tangents", default=False, required=False,
-                        help="If True tangents will be showed.")
+                        help="If True tangents will be showed. (default=%(default)s)")
     parser.add_argument("--show_focuses", default=False, required=False,
-                        help="If True all focuses of curves will be showed.")
+                        help="If True all focuses of curves will be showed. (default=%(default)s)")
     return parser.parse_args()
 
 
