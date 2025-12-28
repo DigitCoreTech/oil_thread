@@ -60,7 +60,7 @@ def circles3_computed_trace_df():
 
 
 def test_vertical_trace(vertical_trace_df: pd.DataFrame):
-    computed_df = compute_trace(vertical_trace_df, deg2rad=True, min_angel=0.5)
+    computed_df = compute_trace(vertical_trace_df, deg2rad=True, min_angle=0.5)
     # coordinates
     pd.testing.assert_series_equal(computed_df['X'].squeeze().reset_index(drop=True),
                                    pd.Series([0.0, 0.0, 0.0], name='X'))
@@ -84,7 +84,7 @@ def test_vertical_trace(vertical_trace_df: pd.DataFrame):
 
 
 def test_circles3_trace(circles3_trace_df: pd.DataFrame):
-    computed_df = compute_trace(circles3_trace_df, deg2rad=True, min_angel=0.5)
+    computed_df = compute_trace(circles3_trace_df, deg2rad=True, min_angle=0.5)
     # coordinates
     pd.testing.assert_series_equal(computed_df['X'].squeeze().reset_index(drop=True),
                                    pd.Series([0.0, 0.0, 100.0, 200], name='X'))

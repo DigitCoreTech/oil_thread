@@ -3,22 +3,22 @@ import pandas as pd
 from matplotlib import pyplot as plt
 
 
-def compute_trace(df: pd.DataFrame, deg2rad: bool = True, min_angel: float = 0.1, *args, **kwargs) -> pd.DataFrame:
+def compute_trace(df: pd.DataFrame, deg2rad: bool = True, min_angle: float = 0.1, *args, **kwargs) -> pd.DataFrame:
     """
     compute trace by method of minimal curve.
         'INC' - zenit
         'AZI' - azimut
         'MD' - length of path
-    :param min_angel: min angel in same measure as in df
+    :param min_angle: min angle in same measure as in df
     :param df: should contains columns ['INC', 'AZI', 'MD'].
-    :param deg2rad: if 'True' values of 'INC', 'AZI' and 'min_angel' will convert to radians
+    :param deg2rad: if 'True' values of 'INC', 'AZI' and 'min_angle' will convert to radians
     :return: same df with coordinates of trace ['X', 'Y', 'Z'] and addition computed
     ['Radius', 'gamma', 'tangentX', 'tangentY', 'tangentZ']
     """
     if deg2rad:
         df['INC'] = np.deg2rad(df['INC'])
         df['AZI'] = np.deg2rad(df['AZI'])
-        min_angel = np.deg2rad([min_angel])[0]
+        min_angle = np.deg2rad([min_angle])[0]
     # касательная
     df['tangentX'] = np.sin(df['INC']) * np.cos(df['AZI'])
     df['tangentY'] = np.sin(df['INC']) * np.sin(df['AZI'])
@@ -30,12 +30,12 @@ def compute_trace(df: pd.DataFrame, deg2rad: bool = True, min_angel: float = 0.1
                             + np.cos(df['INC'].shift(1)) * np.cos(df['INC']))
     # радиус дуги
     df['Radius'] = np.where(
-        df['gamma'] <= min_angel,
+        df['gamma'] <= min_angle,
         np.inf,
         df['dMD'] / df['gamma']
     )
     df['RF'] = np.where(
-        df['gamma'] <= min_angel,
+        df['gamma'] <= min_angle,
         1.0,
         np.tan(0.5 * df['gamma']) * 2.0 / df['gamma']
     )
@@ -61,7 +61,8 @@ def compute_circus(df: pd.DataFrame) -> pd.DataFrame:
      ('v2c_X', 'v2c_Y', 'v2c_Z') - vector to center of circle from previous point
      ('C_X', 'C_Y', 'C_Z') - center of circle
     """
-    # Нормаль к плоскости диги
+    # Нормаль к плоскости дуги
+    # TODO возможно деление на ноль!!!
     tangent = df[['tangentX', 'tangentY', 'tangentZ']]
     normal = np.cross(tangent.shift(1), tangent)
     # Центр дуги
@@ -93,12 +94,12 @@ def compute_subpoints(df: pd.DataFrame, dl: float = 10, default_value: int = 10,
     else:
         df['parts_count'] = default_value
 
-    result = pd.DataFrame()
+    result_list = []
     for i in range(len(df) - 1):
         a = df.iloc[i].copy()
         b = df.iloc[i + 1]
         if b['parts_count'] <= 1:
-            result = pd.concat([result, pd.DataFrame([a])], ignore_index=True)
+            result_list.append(pd.DataFrame([a]))
         else:
             #
             temp_df = pd.DataFrame()
@@ -121,10 +122,10 @@ def compute_subpoints(df: pd.DataFrame, dl: float = 10, default_value: int = 10,
                 e2 = np.array([a['tangentX'], a['tangentY'], a['tangentZ']])
                 e1 = np.array([-b['v2c_X'], -b['v2c_Y'], -b['v2c_Z']])
                 center = np.array([b['C_X'], b['C_Y'], b['C_Z']])
-                angels = np.linspace(0, b['gamma'], int(b['parts_count']) + 1)[1:-1]
+                angles = np.linspace(0, b['gamma'], int(b['parts_count']) + 1)[1:-1]
                 subpoints = np.array([
-                    center + b['Radius'] * (np.cos(angel) * e1 + np.sin(angel) * e2)
-                    for angel in angels
+                    center + b['Radius'] * (np.cos(angle) * e1 + np.sin(angle) * e2)
+                    for angle in angles
                 ])
                 subpoints_df = pd.DataFrame(subpoints, columns=['X', 'Y', 'Z'])
                 temp_df = temp_df.join(subpoints_df)
@@ -140,15 +141,17 @@ def compute_subpoints(df: pd.DataFrame, dl: float = 10, default_value: int = 10,
                 a['gamma'] = b['gamma']
                 a['Radius'] = b['Radius']
             #
-            result = pd.concat([result, pd.DataFrame([a]), temp_df], ignore_index=True)
+            result_list.append(pd.DataFrame([a]))
+            result_list.append(temp_df)
     last_row = df.iloc[len(df) - 1]
-    result = pd.concat([result, pd.DataFrame([last_row])], ignore_index=True)
+    result_list.append(pd.DataFrame([last_row]))
+    result = pd.concat(result_list, ignore_index=True)
     return result[['MD', 'INC', 'AZI', 'tangentX', 'tangentY', 'tangentZ', 'X', 'Y', 'Z', 'C_X', 'C_Y', 'C_Z']]
 
 
-def visualise(df: pd.DataFrame, show_tangents=False, show_focuses=False, *args, **kwargs):
+def visualize(df: pd.DataFrame, show_tangents=False, show_focuses=False, *args, **kwargs):
     """
-    A simple visualise of the trace.
+    A simple visualize of the trace.
     :param df:
     :param show_tangents:
     :param show_focuses:
